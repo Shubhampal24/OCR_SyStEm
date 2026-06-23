@@ -20,3 +20,5 @@ The high-level workflow consists of Image Preprocessing -> OCR Text Extraction -
 *(This section will track our challenges step-by-step)*
 - **Challenge 1:** Establishing an industrial-grade foundation without relying on quick, messy scripts.
   - **Solution:** Designed a granular, 7-phase implementation plan emphasizing configuration management, strict validation, and error handling from day one.
+- **Challenge 2:** Ensuring the repository remains clean and secure during early development phases.
+  - **Solution:** Implemented a robust `.gitignore` to prevent virtual environments, local caches, and `.env` secrets from being accidentally committed. Created an `.env.example` to safely communicate required environment variables.

@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Environment Variables
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
+
+# Hugging Face caching (Important so we don't accidentally push massive AI models to GitHub)
+.cache/
+huggingface/
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -20,7 +20,13 @@ This project is an industrial-grade Intelligent Document Processing (IDP) applic
 4. Run the Streamlit app.
 
 ## Project Structure
-*(To be updated as the architecture is built)*
-
+```text
+OCR_System/
+├── .env.example       # Template for environment variables
+├── .gitignore         # Ignores venv, caches, and secrets
+├── requirements.txt   # Core Python dependencies
+├── README.md          # Project documentation
+└── technical_report.md# Detailed technical interview report
+```
 ## Usage
 *(Instructions on how to upload and interact with the system will be added here)*
