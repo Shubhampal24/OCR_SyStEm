@@ -14,6 +14,11 @@ Real-world document inputs often suffer from shadows, blur, and noise. To maximi
 2.  **Noise Removal:** Applies Gaussian Blur (`cv2.GaussianBlur`) to eliminate high-frequency noise common in mobile camera photos.
 3.  **Adaptive Thresholding:** Uses `cv2.adaptiveThreshold` (Gaussian C) to handle uneven illumination. This ensures text remains legible even if shadows fall across sections of the document.
 
+**Phase 3: OCR Extraction Engine**
+Once the image is preprocessed, it is passed to the `OCREngine` which wraps the `EasyOCR` library. EasyOCR was chosen over Tesseract due to its native Python/PyTorch support and robust out-of-the-box accuracy for multiple languages. 
+- **Confidence Filtering:** To prevent garbage data (e.g., speckles of dust interpreted as commas) from polluting the LLM prompt, the engine implements a strict confidence threshold (default 0.25). Any text bounding box scoring below this threshold is dropped entirely.
+- **Aggregation:** Valid text blocks are joined into a single coherent text string to be passed down the pipeline.
+
 ## 4. LLM Integration & Information Extraction Approach
 *(To be updated with details on the chosen Hugging Face model, prompt engineering techniques, and JSON extraction strategy)*
 

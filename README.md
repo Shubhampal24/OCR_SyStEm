@@ -27,7 +27,8 @@ OCR_System/
 │   │   ├── config.py          # Links .env to Python variables
 │   │   ├── exceptions.py      # Custom error handling
 │   │   └── logger.py          # Standardized event logging
-│   └── image_processing.py    # OpenCV preprocessing pipeline
+│   ├── image_processing.py    # OpenCV preprocessing pipeline
+│   └── ocr_engine.py          # EasyOCR extraction wrapper
 ├── .env.example       # Template for environment variables
 ├── .gitignore         # Ignores venv, caches, and secrets
 ├── requirements.txt   # Core Python dependencies
