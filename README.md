@@ -28,6 +28,7 @@ OCR_System/
 │   │   ├── exceptions.py      # Custom error handling
 │   │   └── logger.py          # Standardized event logging
 │   ├── image_processing.py    # OpenCV preprocessing pipeline
+│   ├── llm_engine.py          # Hugging Face LLM integration
 │   └── ocr_engine.py          # EasyOCR extraction wrapper
 ├── .env.example       # Template for environment variables
 ├── .gitignore         # Ignores venv, caches, and secrets

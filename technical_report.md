@@ -20,7 +20,11 @@ Once the image is preprocessed, it is passed to the `OCREngine` which wraps the 
 - **Aggregation:** Valid text blocks are joined into a single coherent text string to be passed down the pipeline.
 
 ## 4. LLM Integration & Information Extraction Approach
-*(To be updated with details on the chosen Hugging Face model, prompt engineering techniques, and JSON extraction strategy)*
+**Phase 4: Intelligent LLM Engine**
+To satisfy the requirement of using open-source LLMs without relying on external APIs, an `LLMEngine` class was developed utilizing the Hugging Face `transformers` pipeline. 
+- **Prompt Engineering:** The engine constructs a rigid system prompt instructing the model to act as an expert data extractor. It commands the model to correct OCR spelling mistakes, classify the document type, and strictly output JSON. The `temperature` is set to 0.1 to maximize factual determinism and prevent creative hallucinations.
+- **Hardware Agnosticism:** The engine dynamically checks for `torch.cuda.is_available()`. If an NVIDIA GPU is present, it loads the model in memory-efficient `float16` precision to maximize speed. If not, it safely falls back to CPU processing.
+- **Resilient JSON Parsing:** LLMs are notorious for disobeying formatting constraints (e.g., wrapping JSON in markdown backticks). A fallback parser utilizing Regular Expressions (`re.search(r'\{.*\}')`) was implemented to salvage JSON data even if the LLM includes conversational filler text.
 
 ## 5. Validation Logic
 *(To be updated with details on Pydantic schemas and regex logic used for data integrity)*
