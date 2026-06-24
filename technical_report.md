@@ -27,7 +27,14 @@ To satisfy the requirement of using open-source LLMs without relying on external
 - **Resilient JSON Parsing:** LLMs are notorious for disobeying formatting constraints (e.g., wrapping JSON in markdown backticks). A fallback parser utilizing Regular Expressions (`re.search(r'\{.*\}')`) was implemented to salvage JSON data even if the LLM includes conversational filler text.
 
 ## 5. Validation Logic
-*(To be updated with details on Pydantic schemas and regex logic used for data integrity)*
+**Phase 5: Strict Data Validation Layer**
+Because open-source LLMs can hallucinate data, an industrial validation layer acts as a "Security Guard" before any extracted data is persisted. 
+- **Pydantic Schemas:** The `src/validation.py` module uses `pydantic` to enforce strict type checking and coercion (e.g., dynamically converting string amounts like `"100.50"` into `float`).
+- **Regex Enforcement:** Custom `@field_validator` hooks use Regular Expressions to enforce Indian business logic. For example:
+  - **PAN Card:** Enforces `[A-Z]{5}[0-9]{4}[A-Z]{1}`
+  - **Aadhaar:** Enforces exactly 12 digits, stripping out spaces or hyphens that the OCR might have accidentally picked up.
+  - **Emails:** Uses Pydantic's built in `EmailStr` to ensure valid domains and formats.
+If the LLM extracts an invalid format, a `DataValidationError` is raised detailing exactly which field failed.
 
 ## 6. Challenges Faced & Solutions
 *(This section will track our challenges step-by-step)*

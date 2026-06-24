@@ -29,7 +29,8 @@ OCR_System/
 │   │   └── logger.py          # Standardized event logging
 │   ├── image_processing.py    # OpenCV preprocessing pipeline
 │   ├── llm_engine.py          # Hugging Face LLM integration
-│   └── ocr_engine.py          # EasyOCR extraction wrapper
+│   ├── ocr_engine.py          # EasyOCR extraction wrapper
+│   └── validation.py          # Pydantic data validation rules
 ├── .env.example       # Template for environment variables
 ├── .gitignore         # Ignores venv, caches, and secrets
 ├── requirements.txt   # Core Python dependencies
