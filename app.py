@@ -75,7 +75,7 @@ st.markdown("Automate data extraction from Invoices, Receipts, and Identity Docu
 st.markdown("---")
 
 # Create a massive dropzone
-uploaded_file = st.file_uploader("Drop your document here (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("Drop your image document here (PNG, JPG, JPEG, WEBP, TIFF, BMP, JFIF)", type=["png", "jpg", "jpeg", "webp", "tiff", "bmp", "jfif"])
 
 if uploaded_file is not None:
     # Use columns for a sleek dashboard layout (Image on left, Extraction on right)
