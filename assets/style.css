@@ -1,0 +1,74 @@
+/* assets/style.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Hide Streamlit Branding */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+/* Custom Container Styling */
+.stApp {
+    background-color: #f8fafc;
+}
+
+/* Make headers pop */
+h1 {
+    color: #0f172a;
+    font-weight: 800;
+}
+h2, h3 {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+/* Style the file uploader to look like a modern dropzone */
+[data-testid="stFileUploadDropzone"] {
+    border: 2px dashed #3b82f6 !important;
+    border-radius: 12px !important;
+    padding: 30px !important;
+    background-color: #ffffff !important;
+    transition: all 0.3s ease;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+    border-color: #2563eb !important;
+    background-color: #eff6ff !important;
+}
+
+/* Metric Cards for Document Type */
+div[data-testid="stMetricValue"] {
+    font-size: 2rem;
+    color: #059669;
+    font-weight: 800;
+}
+div[data-testid="stMetricLabel"] {
+    font-size: 1rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Make input fields look like clean read-only cards */
+.stTextInput > div > div > input {
+    background-color: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #0f172a;
+    font-weight: 600;
+}
+
+/* Customize Tabs */
+button[data-baseweb="tab"] {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+/* Clean up sidebar */
+[data-testid="stSidebar"] {
+    background-color: #1e293b;
+}
+[data-testid="stSidebar"] * {
+    color: #f8fafc !important;
+}

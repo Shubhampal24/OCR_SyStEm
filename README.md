@@ -31,6 +31,7 @@ OCR_System/
 │   ├── llm_engine.py          # Hugging Face LLM integration
 │   ├── ocr_engine.py          # EasyOCR extraction wrapper
 │   └── validation.py          # Pydantic data validation rules
+├── app.py             # Main Streamlit Dashboard
 ├── .env.example       # Template for environment variables
 ├── .gitignore         # Ignores venv, caches, and secrets
 ├── requirements.txt   # Core Python dependencies
@@ -38,4 +39,7 @@ OCR_System/
 └── technical_report.md# Detailed technical interview report
 ```
 ## Usage
-*(Instructions on how to upload and interact with the system will be added here)*
+
+1. **Activate the virtual environment**: `.\venv\Scripts\activate`
+2. **Start the application**: `streamlit run app.py`
+3. A browser window will automatically open. Upload any document image (Invoice, ID Card, Receipt) to test the end-to-end extraction pipeline.

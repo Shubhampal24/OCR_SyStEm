@@ -4,8 +4,10 @@
 This report details the architectural decisions, workflows, and challenges faced during the development of an industrial-grade Intelligent OCR System. The system strictly adheres to the requirement of utilizing only open-source tools (EasyOCR, Hugging Face LLMs, OpenCV, Pydantic, Streamlit).
 
 ## 2. System Architecture & Workflow
-*(To be updated as the system is built)*
-The high-level workflow consists of Image Preprocessing -> OCR Text Extraction -> LLM Processing (Correction, Extraction, Classification) -> Data Validation -> UI Presentation.
+**Phase 6: Interactive Frontend**
+The system is bound together using a `Streamlit` dashboard (`app.py`). To ensure high performance, the heavy AI models (EasyOCR and Hugging Face pipelines) are instantiated using Streamlit's `@st.cache_resource` decorator. This ensures the models are only loaded into RAM once when the server boots, allowing subsequent image uploads to be processed rapidly.
+
+The high-level workflow consists of: Image Upload -> OpenCV Preprocessing -> EasyOCR Text Extraction -> Hugging Face LLM Processing -> Pydantic Data Validation -> Streamlit UI Presentation.
 
 ## 3. Image Preprocessing & OCR Workflow
 **Phase 2: Image Preprocessing Pipeline**
