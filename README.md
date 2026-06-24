@@ -22,6 +22,11 @@ This project is an industrial-grade Intelligent Document Processing (IDP) applic
 ## Project Structure
 ```text
 OCR_System/
+├── src/
+│   └── core/
+│       ├── config.py          # Links .env to Python variables
+│       ├── exceptions.py      # Custom error handling
+│       └── logger.py          # Standardized event logging
 ├── .env.example       # Template for environment variables
 ├── .gitignore         # Ignores venv, caches, and secrets
 ├── requirements.txt   # Core Python dependencies

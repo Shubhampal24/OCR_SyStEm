@@ -22,3 +22,5 @@ The high-level workflow consists of Image Preprocessing -> OCR Text Extraction -
   - **Solution:** Designed a granular, 7-phase implementation plan emphasizing configuration management, strict validation, and error handling from day one.
 - **Challenge 2:** Ensuring the repository remains clean and secure during early development phases.
   - **Solution:** Implemented a robust `.gitignore` to prevent virtual environments, local caches, and `.env` secrets from being accidentally committed. Created an `.env.example` to safely communicate required environment variables.
+- **Challenge 3:** Bridging environment configurations to Python without hardcoding, while ensuring strict error tracking.
+  - **Solution:** Developed a `src/core/` module. Created `config.py` using `dotenv` to load settings, `logger.py` to replace standard print statements with industrial logging, and `exceptions.py` to enforce strict custom error boundaries (e.g., `OCRExtractionError`, `LLMExtractionError`).
