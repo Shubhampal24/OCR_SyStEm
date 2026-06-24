@@ -8,7 +8,11 @@ This report details the architectural decisions, workflows, and challenges faced
 The high-level workflow consists of Image Preprocessing -> OCR Text Extraction -> LLM Processing (Correction, Extraction, Classification) -> Data Validation -> UI Presentation.
 
 ## 3. Image Preprocessing & OCR Workflow
-*(To be updated with specifics on OpenCV techniques and EasyOCR configurations used)*
+**Phase 2: Image Preprocessing Pipeline**
+Real-world document inputs often suffer from shadows, blur, and noise. To maximize OCR accuracy, an `ImageProcessor` class was built using OpenCV (`cv2`). The pipeline applies three sequential transformations:
+1.  **Grayscale Conversion:** Strips unnecessary color channels (`cv2.cvtColor`).
+2.  **Noise Removal:** Applies Gaussian Blur (`cv2.GaussianBlur`) to eliminate high-frequency noise common in mobile camera photos.
+3.  **Adaptive Thresholding:** Uses `cv2.adaptiveThreshold` (Gaussian C) to handle uneven illumination. This ensures text remains legible even if shadows fall across sections of the document.
 
 ## 4. LLM Integration & Information Extraction Approach
 *(To be updated with details on the chosen Hugging Face model, prompt engineering techniques, and JSON extraction strategy)*
