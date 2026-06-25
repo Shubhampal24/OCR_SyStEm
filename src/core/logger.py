@@ -9,6 +9,7 @@ def get_logger(name: str) -> logging.Logger:
     what time an event happened and from which file.
     """
     logger = logging.getLogger(name)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
     
     # Prevent adding multiple handlers if logger is called multiple times
     if not logger.handlers:

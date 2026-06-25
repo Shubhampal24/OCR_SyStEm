@@ -80,7 +80,7 @@ with st.sidebar:
     confidence_thresh = st.slider("OCR Confidence Threshold", 0.0, 1.0, 0.50, 0.05)
     st.caption("Lowering this increases noise but captures faint text. RapidOCR defaults to 0.5.")
     
-    if st.button("🗑️ Reset Session", use_container_width=True):
+    if st.button("🗑️ Reset Session"):
         st.session_state.clear()
         st.rerun()
 
@@ -115,13 +115,13 @@ if uploaded_file is not None:
         else:
             pil_image = Image.open(uploaded_file)
             
-        st.image(pil_image, use_container_width=True, clamp=True)
+        st.image(pil_image, clamp=True)
         
     with main_col2:
         st.subheader("AI Pipeline")
             
         if not st.session_state.extraction_done:
-            if st.button("▶ Run Extraction Sequence", use_container_width=True, type="primary"):
+            if st.button("▶ Run Extraction Sequence", type="primary"):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -184,7 +184,7 @@ if uploaded_file is not None:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 json_string = json.dumps(st.session_state.final_data, indent=2)
-                st.download_button(label="⬇️ Download JSON", file_name="extracted_data.json", mime="application/json", data=json_string, use_container_width=True)
+                st.download_button(label="⬇️ Download JSON", file_name="extracted_data.json", mime="application/json", data=json_string)
                         
             with tab2:
                 st.markdown("### Interactive Chatbot")

@@ -30,7 +30,7 @@ class LLMEngine:
                 "text-generation", 
                 model=settings.LLM_MODEL_NAME, 
                 device=device,
-                torch_dtype=torch.float16 if device == 0 else torch.float32,
+                dtype=torch.float16 if device == 0 else torch.float32,
             )
             logger.info("LLM loaded successfully.")
             
