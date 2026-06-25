@@ -1,78 +1,57 @@
-# Intelligent OCR System: Technical Report
+# Technical Report: Intelligent OCR & Document Understanding System
 
-## 1. Introduction
-This report details the design and implementation of an end-to-end Intelligent Optical Character Recognition (OCR) System. The objective was to build a robust pipeline that not only extracts raw text from document images and PDFs but also intelligently structures, validates, and classifies the information using exclusively open-source tools (EasyOCR, Hugging Face LLMs, OpenCV).
+## 1. Introduction & Problem Statement
+The objective of this project was to construct an intelligent Optical Character Recognition (OCR) pipeline capable of ingesting raw document images (invoices, ID cards, receipts), extracting their text, and converting that text into highly structured JSON payloads using exclusively open-source, local AI models. The use of paid APIs (OpenAI, Gemini) was strictly prohibited to guarantee a privacy-first, air-gapped solution.
 
-## 2. System Architecture
+## 2. OCR Workflow (Computer Vision Layer)
 
-```mermaid
-graph TD
-    A[User Upload] -->|PDF/Image| B(Streamlit Frontend)
-    B --> C{File Type Check}
-    C -->|PDF| D[PyMuPDF Page Extraction]
-    C -->|Image| E[PIL Image Loader]
-    D --> F[OpenCV Preprocessing Pipeline]
-    E --> F
-    
-    subgraph Image Processing Phase
-    F --> F1[Grayscale]
-    F1 --> F2[Gaussian Denoising]
-    F2 --> F3[Canny MinAreaRect Deskewing]
-    F3 --> F4[Adaptive Binarization]
-    end
-    
-    F4 --> G[EasyOCR Engine]
-    G --> H[Raw Messy Text]
-    
-    subgraph LLM Intelligence Phase
-    H --> I[Qwen2.5-1.5B-Instruct]
-    I --> J1[Document Classification]
-    I --> J2[Corrected Text Generation]
-    I --> J3[Dynamic Field Extraction JSON]
-    end
-    
-    J3 --> K[Pydantic Validation Layer]
-    
-    subgraph Business Logic Validation
-    K --> K1[Date Format Check]
-    K --> K2[GST Number Regex]
-    K --> K3[Aadhaar/PAN Format Check]
-    end
-    
-    K --> L[Validated Structured Data]
-    L --> M[Frontend Display]
-    I --> N[Interactive Chatbot Q&A]
-    N --> M
-```
+### Image Preprocessing
+Before passing an image to the neural networks, we must ensure the data is as clean as possible. Destructive preprocessing methods (like strict binary adaptive thresholding) were avoided because they often wash out faint text on poorly lit photos. 
+Instead, our `ImageProcessor` applies:
+1. **Size Normalization:** Massively high-resolution images are scaled down to prevent memory timeouts.
+2. **CLAHE (Contrast Limited Adaptive Histogram Equalization):** This algorithm locally enhances the contrast of text against its background without blowing out the highlights of the entire image.
+3. **Gaussian Blur:** A mild 3x3 kernel blur is applied to remove camera sensor noise.
 
-## 3. Image Preprocessing & OCR Workflow
-Raw documents captured by mobile cameras are inherently messy, suffering from poor lighting, noise, and rotation (skew). 
+### RapidOCR (PaddleOCR ONNX)
+For the extraction layer, we selected **RapidOCR** over EasyOCR and Tesseract. RapidOCR is a CPU-optimized ONNX runtime wrapper for Baidu’s state-of-the-art PaddleOCR models. 
+It operates using three distinct neural networks:
+1. **DB++ (Text Detection):** Accurately finds bounding boxes around text, heavily outperforming EasyOCR on dense documents like invoices.
+2. **Angle Classification:** Replaces the need for manual OpenCV deskewing. It detects if the text is upside down (180 degrees) and corrects it internally.
+3. **CRNN (Text Recognition):** Reads the actual characters inside the bounding boxes. We implemented a strict confidence threshold filter (`0.5`) to automatically drop hallucinated characters and camera noise.
 
-**The Preprocessing Pipeline (`src/image_processing.py`):**
-1. **Grayscale Conversion:** Reduces computational overhead by discarding unnecessary color channels.
-2. **Noise Removal:** A Gaussian Blur (`5x5` kernel) mitigates salt-and-pepper noise common in low-resolution scans.
-3. **Deskewing:** Using OpenCV's `minAreaRect`, the system detects the primary angle of the text blocks and applies an affine transformation to geometrically rotate the document back to a 0-degree baseline. This is critical for preventing OCR failure on sideways documents like rotated PAN cards.
-4. **Adaptive Thresholding:** Unlike global thresholding, adaptive thresholding dynamically calculates the binarization cutoff for localized regions, rescuing documents plagued by heavy shadows.
+## 3. LLM Integration & Information Extraction
 
-The pristine numpy array is then passed to **EasyOCR**, an open-source PyTorch-based engine that utilizes a CNN/RNN architecture to extract strings of raw text.
+Extracting text is only the first step; the text must be semantically understood. We implemented Hugging Face Transformers to run **Microsoft Phi-3.5-mini-instruct**, an incredibly capable 3.8-billion-parameter Small Language Model (SLM) running purely on CPU.
 
-## 4. LLM Integration & Information Extraction
-The raw text extracted by EasyOCR often contains spelling errors and lacks context (e.g., distinguishing a vendor name from a product name).
+### Few-Shot Prompt Engineering
+SLMs have a tendency to hallucinate formatting if not strictly guided. To ensure the output was perfect JSON, we utilized **Few-Shot Prompting**. We injected a perfect example of a PAN Card extraction directly into the system prompt. By showing the model exactly what a successful input and output looks like, we eliminated JSON structure hallucinations.
 
-**The LLM Engine (`src/llm_engine.py`):**
-To achieve "Intelligent Extraction" without proprietary APIs, we integrated the open-source `Qwen/Qwen2.5-1.5B-Instruct` model directly from Hugging Face via the `transformers` library.
-* **Prompt Engineering:** The LLM is instructed via a strict system prompt to act as an information architect. It dynamically reads the context, classifies the document into predefined categories (e.g., 'Invoice', 'Aadhaar Card', 'Bank Statement'), corrects the raw OCR text, and structures the identified entities into a strict JSON dictionary.
-* **Chatbot Interface:** By passing the OCR text into a secondary generation pipeline, the LLM also serves as a document Q&A agent, allowing users to interrogate the document interactively.
+### Fallback Regex Parsing
+Because SLMs are trained on markdown, they occasionally wrap their JSON output in markdown blocks (e.g., ` ```json {...} ``` `). We built a robust Regex parser inside `llm_engine.py` that strips conversational garbage and markdown artifacts, extracting only the raw dictionary.
 
-## 5. Validation Logic
-Extracting data is only half the battle; ensuring data integrity is crucial for industrial pipelines. 
+### RAG Chatbot Integration
+By utilizing Streamlit's `st.session_state`, we stored the user's conversational history. The extracted document text is injected as "DOCUMENT CONTEXT", and the chat history is appended to the prompt. This creates a multi-turn, Retrieval-Augmented Generation (RAG) chatbot that allows users to seamlessly interrogate their documents.
 
-**The Validation Layer (`src/validation.py`):**
-We utilize `Pydantic` to enforce strict schema types and business rules.
-* **Regex Security Guards:** Custom validators are deployed for complex Indian formats. For example, GST Numbers are validated against `^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}$`, and Date fields are checked for valid generic formats (`DD/MM/YYYY`).
-* **Type Coercion:** String amounts extracted by the LLM (e.g., "100.50") are strictly cast to floats, preventing downstream database errors.
+## 4. Validation Logic
+AI outputs cannot be fully trusted in a production environment. We implemented a strict business-logic layer using **Pydantic**.
+The `validation.py` script applies custom RegEx rules to the LLM's JSON output to verify format compliance for:
+- **Indian PAN Cards:** (`^[A-Z]{5}[0-9]{4}[A-Z]{1}$`)
+- **Aadhaar Numbers:** 12 numeric digits
+- **GST Numbers:** Validates state codes and checksum placement
+- **Phone & Date Formats**
 
-## 6. Challenges Faced & Solutions
-1. **Rotated Inputs:** Initially, sideways ID cards (PAN cards) caused catastrophic OCR failure, leading the LLM to hallucinate dummy data (e.g., "John Doe") to fulfill the JSON schema constraint. **Solution:** Implemented the MinAreaRect deskewing pipeline in OpenCV and injected strict anti-hallucination commands into the LLM system prompt.
-2. **Local LLM Latency:** Running a 1.5B parameter Transformer model on a local CPU incurs significant latency (2-5 minutes per document). **Solution:** Implemented asynchronous Streamlit UI state handling (`st.session_state`) so the user can interact with the Chatbot without triggering a full re-run of the massive extraction pipeline. Added clear UX warnings regarding CPU wait times.
-3. **Regex Extraction over LLM Generation:** Open-source LLMs occasionally wrap their JSON output in Markdown blocks (`````json ... `````). **Solution:** Built a robust regex parsing layer (`re.search(r'\{.*\}')`) to strip conversational artifacts and safely parse only the pure JSON payload.
+To prevent system crashes when the AI hallucinates a bad date format, we implemented **Soft Validation**. If a rule is violated, Pydantic catches the error, prevents a Python crash, and elegantly displays a yellow warning box to the user on the Streamlit frontend.
+
+## 5. Challenges Faced & Resolutions
+
+**Challenge 1: Environment & Dependency Conflicts**
+*Issue:* The standard `paddlepaddle` library lacks pre-compiled binaries for newer Python versions (3.14), resulting in C++ compiler errors during installation.
+*Resolution:* Pivoted architecture to use `rapidocr-onnxruntime`. This bypassed the PaddlePaddle ecosystem entirely, running the exact same models natively via Microsoft's ONNX runtime, ensuring 100% cross-platform compatibility.
+
+**Challenge 2: LLM Hallucination on Blank Images**
+*Issue:* If a user uploads an image with just a logo and no text, the LLM attempts to fulfill its prompt by completely inventing fake names and invoice numbers out of thin air.
+*Resolution:* Implemented an "Anti-Hallucination Guard" in the code. If RapidOCR returns fewer than 10 total characters of text, the system completely skips the LLM generation phase and instantly returns an "Unreadable Document" flag.
+
+**Challenge 3: Streamlit File Lock Exceptions**
+*Issue:* Streamlit's cache holds onto `.pyd` files (like OpenCV binaries), causing permissions errors (`[WinError 5] Access is denied`) when trying to update backend dependencies.
+*Resolution:* Implemented manual task killing and cache-clearing mechanisms, ensuring the development environment remained stable during hot-reloads.
