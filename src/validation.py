@@ -18,12 +18,32 @@ class DocumentData(BaseModel):
     
     # Optional fields (since a receipt won't have a PAN number, etc.)
     name: Optional[str] = None
-    date: Optional[str] = None
     email: Optional[EmailStr] = None # Built-in robust email regex validation
-    phone: Optional[str] = None
     total_amount: Optional[float] = None # Will automatically cast string "100.50" to float
-    pan_number: Optional[str] = None
-    aadhaar_number: Optional[str] = None
+    phone: Optional[str] = Field(None, description="Phone number")
+    pan_number: Optional[str] = Field(None, description="PAN Card number")
+    aadhaar_number: Optional[str] = Field(None, description="Aadhaar Card number")
+    gst_number: Optional[str] = Field(None, description="GST Number")
+    date: Optional[str] = Field(None, description="Date of the document")
+    
+    # --- Pydantic Validators (The Security Guards) ---
+    
+    @field_validator('date')
+    def validate_date(cls, v):
+        if not v: return v
+        # Simple regex to ensure it looks like a date (DD/MM/YYYY or YYYY-MM-DD or DD-MM-YYYY)
+        if not re.search(r'\d{2,4}[-/]\d{2}[-/]\d{2,4}', v):
+            raise ValueError(f"Invalid Date format: {v}. Must be DD/MM/YYYY or similar.")
+        return v
+        
+    @field_validator('gst_number')
+    def validate_gst(cls, v):
+        if not v: return v
+        clean_v = v.replace(" ", "").upper()
+        # Indian GST format: 2 numbers + 10 PAN chars + 1 number/letter + Z + 1 number/letter
+        if not re.match(r'^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}$', clean_v):
+            raise ValueError(f"Invalid GST Number format: {v}")
+        return clean_v
 
     @field_validator('phone')
     def validate_phone(cls, v):

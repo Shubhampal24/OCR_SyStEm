@@ -77,15 +77,27 @@ class LLMEngine:
         system_prompt = (
             "You are an expert data extraction AI. "
             "Your job is to read messy OCR text from a document and extract key information into a strict JSON format. "
-            "Correct any obvious spelling mistakes caused by the OCR. "
-            "Always include a 'document_type' key classifying the document (e.g., 'Invoice', 'Receipt', 'ID Card', 'Unknown'). "
-            "Extract fields like 'name', 'date', 'total_amount', 'email', 'phone' if present. "
+            "Rule 1: Always include a 'document_type' key classifying the document strictly into one of these: 'Invoice', 'Receipt', 'Resume', 'Aadhaar Card', 'PAN Card', 'Driving License', 'Passport', 'Bank Statement', 'Other'. "
+            "Rule 2: Always include a 'corrected_text' key containing a grammatically fixed version of the raw OCR text. "
+            "Rule 3: Dynamically extract ALL relevant fields based on the document type (e.g., 'name', 'date', 'total_amount', 'invoice_number', 'gst_number', 'pan_number', 'aadhaar_number'). "
+            "CRITICAL RULE: If the OCR text is garbage or empty, do NOT make up fake data like 'John Doe'. Output an empty JSON {} if no real data is found. "
             "Do NOT include any explanations, introductory text, or markdown formatting like ```json. Output ONLY the raw JSON dictionary."
         )
         
         user_prompt = f"OCR TEXT:\n{ocr_text}\n\nEXTRACTED JSON:"
         
-        return f"{system_prompt}\n\n{user_prompt}"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            return self.generator.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to apply chat template: {e}. Falling back to basic prompt.")
+            return f"{system_prompt}\n\n{user_prompt}"
 
     def _parse_json(self, text: str) -> dict:
         """
@@ -108,3 +120,36 @@ class LLMEngine:
                     raise LLMExtractionError(f"Regex extracted text is still not valid JSON: {str(e)}")
             else:
                 raise LLMExtractionError("No JSON structure could be found in the LLM output.")
+
+    def answer_question(self, question: str, context: str) -> str:
+        """
+        Takes the user's question and the raw OCR text as context and answers the question.
+        """
+        logger.info(f"Answering user query: {question}")
+        system_prompt = "You are a helpful assistant reading a document."
+        user_prompt = f"DOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION: {question}"
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            prompt = self.generator.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            prompt = f"{system_prompt}\n\n{user_prompt}\n\nANSWER:"
+            
+        try:
+            response = self.generator(
+                prompt,
+                max_new_tokens=256,
+                return_full_text=False,
+                temperature=0.3,
+                do_sample=True
+            )
+            return response[0]['generated_text'].strip()
+        except Exception as e:
+            logger.error(f"Chatbot failed: {str(e)}")
+            return "I am sorry, I am having trouble answering that question right now."

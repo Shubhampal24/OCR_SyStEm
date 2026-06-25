@@ -1,48 +1,78 @@
-# Technical Report: Intelligent OCR System
+# Intelligent OCR System: Technical Report
 
-## 1. Executive Summary
-This report details the architectural decisions, workflows, and challenges faced during the development of an industrial-grade Intelligent OCR System. The system strictly adheres to the requirement of utilizing only open-source tools (EasyOCR, Hugging Face LLMs, OpenCV, Pydantic, Streamlit).
+## 1. Introduction
+This report details the design and implementation of an end-to-end Intelligent Optical Character Recognition (OCR) System. The objective was to build a robust pipeline that not only extracts raw text from document images and PDFs but also intelligently structures, validates, and classifies the information using exclusively open-source tools (EasyOCR, Hugging Face LLMs, OpenCV).
 
-## 2. System Architecture & Workflow
-**Phase 6: Interactive Frontend**
-The system is bound together using a `Streamlit` dashboard (`app.py`). To ensure high performance, the heavy AI models (EasyOCR and Hugging Face pipelines) are instantiated using Streamlit's `@st.cache_resource` decorator. This ensures the models are only loaded into RAM once when the server boots, allowing subsequent image uploads to be processed rapidly.
+## 2. System Architecture
 
-The high-level workflow consists of: Image Upload -> OpenCV Preprocessing -> EasyOCR Text Extraction -> Hugging Face LLM Processing -> Pydantic Data Validation -> Streamlit UI Presentation.
+```mermaid
+graph TD
+    A[User Upload] -->|PDF/Image| B(Streamlit Frontend)
+    B --> C{File Type Check}
+    C -->|PDF| D[PyMuPDF Page Extraction]
+    C -->|Image| E[PIL Image Loader]
+    D --> F[OpenCV Preprocessing Pipeline]
+    E --> F
+    
+    subgraph Image Processing Phase
+    F --> F1[Grayscale]
+    F1 --> F2[Gaussian Denoising]
+    F2 --> F3[Canny MinAreaRect Deskewing]
+    F3 --> F4[Adaptive Binarization]
+    end
+    
+    F4 --> G[EasyOCR Engine]
+    G --> H[Raw Messy Text]
+    
+    subgraph LLM Intelligence Phase
+    H --> I[Qwen2.5-1.5B-Instruct]
+    I --> J1[Document Classification]
+    I --> J2[Corrected Text Generation]
+    I --> J3[Dynamic Field Extraction JSON]
+    end
+    
+    J3 --> K[Pydantic Validation Layer]
+    
+    subgraph Business Logic Validation
+    K --> K1[Date Format Check]
+    K --> K2[GST Number Regex]
+    K --> K3[Aadhaar/PAN Format Check]
+    end
+    
+    K --> L[Validated Structured Data]
+    L --> M[Frontend Display]
+    I --> N[Interactive Chatbot Q&A]
+    N --> M
+```
 
 ## 3. Image Preprocessing & OCR Workflow
-**Phase 2: Image Preprocessing Pipeline**
-Real-world document inputs often suffer from shadows, blur, and noise. To maximize OCR accuracy, an `ImageProcessor` class was built using OpenCV (`cv2`). The pipeline applies three sequential transformations:
-1.  **Grayscale Conversion:** Strips unnecessary color channels (`cv2.cvtColor`).
-2.  **Noise Removal:** Applies Gaussian Blur (`cv2.GaussianBlur`) to eliminate high-frequency noise common in mobile camera photos.
-3.  **Adaptive Thresholding:** Uses `cv2.adaptiveThreshold` (Gaussian C) to handle uneven illumination. This ensures text remains legible even if shadows fall across sections of the document.
+Raw documents captured by mobile cameras are inherently messy, suffering from poor lighting, noise, and rotation (skew). 
 
-**Phase 3: OCR Extraction Engine**
-Once the image is preprocessed, it is passed to the `OCREngine` which wraps the `EasyOCR` library. EasyOCR was chosen over Tesseract due to its native Python/PyTorch support and robust out-of-the-box accuracy for multiple languages. 
-- **Confidence Filtering:** To prevent garbage data (e.g., speckles of dust interpreted as commas) from polluting the LLM prompt, the engine implements a strict confidence threshold (default 0.25). Any text bounding box scoring below this threshold is dropped entirely.
-- **Aggregation:** Valid text blocks are joined into a single coherent text string to be passed down the pipeline.
+**The Preprocessing Pipeline (`src/image_processing.py`):**
+1. **Grayscale Conversion:** Reduces computational overhead by discarding unnecessary color channels.
+2. **Noise Removal:** A Gaussian Blur (`5x5` kernel) mitigates salt-and-pepper noise common in low-resolution scans.
+3. **Deskewing:** Using OpenCV's `minAreaRect`, the system detects the primary angle of the text blocks and applies an affine transformation to geometrically rotate the document back to a 0-degree baseline. This is critical for preventing OCR failure on sideways documents like rotated PAN cards.
+4. **Adaptive Thresholding:** Unlike global thresholding, adaptive thresholding dynamically calculates the binarization cutoff for localized regions, rescuing documents plagued by heavy shadows.
 
-## 4. LLM Integration & Information Extraction Approach
-**Phase 4: Intelligent LLM Engine**
-To satisfy the requirement of using open-source LLMs without relying on external APIs, an `LLMEngine` class was developed utilizing the Hugging Face `transformers` pipeline. 
-- **Prompt Engineering:** The engine constructs a rigid system prompt instructing the model to act as an expert data extractor. It commands the model to correct OCR spelling mistakes, classify the document type, and strictly output JSON. The `temperature` is set to 0.1 to maximize factual determinism and prevent creative hallucinations.
-- **Hardware Agnosticism:** The engine dynamically checks for `torch.cuda.is_available()`. If an NVIDIA GPU is present, it loads the model in memory-efficient `float16` precision to maximize speed. If not, it safely falls back to CPU processing.
-- **Resilient JSON Parsing:** LLMs are notorious for disobeying formatting constraints (e.g., wrapping JSON in markdown backticks). A fallback parser utilizing Regular Expressions (`re.search(r'\{.*\}')`) was implemented to salvage JSON data even if the LLM includes conversational filler text.
+The pristine numpy array is then passed to **EasyOCR**, an open-source PyTorch-based engine that utilizes a CNN/RNN architecture to extract strings of raw text.
+
+## 4. LLM Integration & Information Extraction
+The raw text extracted by EasyOCR often contains spelling errors and lacks context (e.g., distinguishing a vendor name from a product name).
+
+**The LLM Engine (`src/llm_engine.py`):**
+To achieve "Intelligent Extraction" without proprietary APIs, we integrated the open-source `Qwen/Qwen2.5-1.5B-Instruct` model directly from Hugging Face via the `transformers` library.
+* **Prompt Engineering:** The LLM is instructed via a strict system prompt to act as an information architect. It dynamically reads the context, classifies the document into predefined categories (e.g., 'Invoice', 'Aadhaar Card', 'Bank Statement'), corrects the raw OCR text, and structures the identified entities into a strict JSON dictionary.
+* **Chatbot Interface:** By passing the OCR text into a secondary generation pipeline, the LLM also serves as a document Q&A agent, allowing users to interrogate the document interactively.
 
 ## 5. Validation Logic
-**Phase 5: Strict Data Validation Layer**
-Because open-source LLMs can hallucinate data, an industrial validation layer acts as a "Security Guard" before any extracted data is persisted. 
-- **Pydantic Schemas:** The `src/validation.py` module uses `pydantic` to enforce strict type checking and coercion (e.g., dynamically converting string amounts like `"100.50"` into `float`).
-- **Regex Enforcement:** Custom `@field_validator` hooks use Regular Expressions to enforce Indian business logic. For example:
-  - **PAN Card:** Enforces `[A-Z]{5}[0-9]{4}[A-Z]{1}`
-  - **Aadhaar:** Enforces exactly 12 digits, stripping out spaces or hyphens that the OCR might have accidentally picked up.
-  - **Emails:** Uses Pydantic's built in `EmailStr` to ensure valid domains and formats.
-If the LLM extracts an invalid format, a `DataValidationError` is raised detailing exactly which field failed.
+Extracting data is only half the battle; ensuring data integrity is crucial for industrial pipelines. 
+
+**The Validation Layer (`src/validation.py`):**
+We utilize `Pydantic` to enforce strict schema types and business rules.
+* **Regex Security Guards:** Custom validators are deployed for complex Indian formats. For example, GST Numbers are validated against `^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}$`, and Date fields are checked for valid generic formats (`DD/MM/YYYY`).
+* **Type Coercion:** String amounts extracted by the LLM (e.g., "100.50") are strictly cast to floats, preventing downstream database errors.
 
 ## 6. Challenges Faced & Solutions
-*(This section will track our challenges step-by-step)*
-- **Challenge 1:** Establishing an industrial-grade foundation without relying on quick, messy scripts.
-  - **Solution:** Designed a granular, 7-phase implementation plan emphasizing configuration management, strict validation, and error handling from day one.
-- **Challenge 2:** Ensuring the repository remains clean and secure during early development phases.
-  - **Solution:** Implemented a robust `.gitignore` to prevent virtual environments, local caches, and `.env` secrets from being accidentally committed. Created an `.env.example` to safely communicate required environment variables.
-- **Challenge 3:** Bridging environment configurations to Python without hardcoding, while ensuring strict error tracking.
-  - **Solution:** Developed a `src/core/` module. Created `config.py` using `dotenv` to load settings, `logger.py` to replace standard print statements with industrial logging, and `exceptions.py` to enforce strict custom error boundaries (e.g., `OCRExtractionError`, `LLMExtractionError`).
+1. **Rotated Inputs:** Initially, sideways ID cards (PAN cards) caused catastrophic OCR failure, leading the LLM to hallucinate dummy data (e.g., "John Doe") to fulfill the JSON schema constraint. **Solution:** Implemented the MinAreaRect deskewing pipeline in OpenCV and injected strict anti-hallucination commands into the LLM system prompt.
+2. **Local LLM Latency:** Running a 1.5B parameter Transformer model on a local CPU incurs significant latency (2-5 minutes per document). **Solution:** Implemented asynchronous Streamlit UI state handling (`st.session_state`) so the user can interact with the Chatbot without triggering a full re-run of the massive extraction pipeline. Added clear UX warnings regarding CPU wait times.
+3. **Regex Extraction over LLM Generation:** Open-source LLMs occasionally wrap their JSON output in Markdown blocks (`````json ... `````). **Solution:** Built a robust regex parsing layer (`re.search(r'\{.*\}')`) to strip conversational artifacts and safely parse only the pure JSON payload.

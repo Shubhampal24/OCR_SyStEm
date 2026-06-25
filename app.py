@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 import json
 import os
+import fitz  # PyMuPDF for PDF support
 
 # Import our custom backend modules
 from src.core.logger import get_logger
@@ -75,7 +76,7 @@ st.markdown("Automate data extraction from Invoices, Receipts, and Identity Docu
 st.markdown("---")
 
 # Create a massive dropzone
-uploaded_file = st.file_uploader("Drop your image document here (PNG, JPG, JPEG, WEBP, TIFF, BMP, JFIF)", type=["png", "jpg", "jpeg", "webp", "tiff", "bmp", "jfif"])
+uploaded_file = st.file_uploader("Drop your document here (PDF, PNG, JPG, JPEG, WEBP, TIFF, BMP, JFIF)", type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "bmp", "jfif"])
 
 if uploaded_file is not None:
     # Use columns for a sleek dashboard layout (Image on left, Extraction on right)
@@ -83,13 +84,29 @@ if uploaded_file is not None:
     
     with main_col1:
         st.subheader("Document Preview")
-        pil_image = Image.open(uploaded_file)
+        
+        # Handle PDF conversion if necessary
+        if uploaded_file.name.lower().endswith(".pdf"):
+            st.info("Extracting first page of PDF...")
+            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+            page = doc.load_page(0)  # Extract first page
+            pix = page.get_pixmap()
+            pil_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            uploaded_file.seek(0)
+        else:
+            pil_image = Image.open(uploaded_file)
+            
         # Display image with clean styling
         st.image(pil_image, use_column_width=True, clamp=True)
         
     with main_col2:
         st.subheader("Extraction Pipeline")
         
+        # Clear session state if a new file is uploaded
+        if "current_file" not in st.session_state or st.session_state["current_file"] != uploaded_file.name:
+            st.session_state["current_file"] = uploaded_file.name
+            st.session_state["extraction_done"] = False
+            
         if st.button("▶ Run Extraction Sequence", use_container_width=True, type="primary"):
             
             # Custom Progress UI
@@ -118,7 +135,7 @@ if uploaded_file is not None:
                 st.stop()
                 
             # Phase 4
-            status_text.info("🧠 Analyzing context with LLM...")
+            status_text.info("🧠 Analyzing context with LLM... (Warning: You don't have a GPU. This can take 2-5 minutes on a normal CPU! Please wait...)")
             try:
                 raw_json = llm_engine.extract_information(raw_text)
                 progress_bar.progress(75)
@@ -135,13 +152,25 @@ if uploaded_file is not None:
             except Exception as e:
                 validation_errors = str(e)
             
+            # Save everything to session state so it persists during Chatbot queries
+            st.session_state['extraction_done'] = True
+            st.session_state['raw_text'] = raw_text
+            st.session_state['final_data'] = final_data
+            st.session_state['validation_errors'] = validation_errors
+            
             progress_bar.progress(100)
             status_text.success("✅ Extraction Complete.")
             
             st.markdown("---")
             
+        # If extraction is done, show the results
+        if st.session_state.get('extraction_done', False):
+            final_data = st.session_state['final_data']
+            raw_text = st.session_state['raw_text']
+            validation_errors = st.session_state['validation_errors']
+            
             # Show Results in modern Tabs instead of a long scrollable page
-            tab1, tab2, tab3 = st.tabs(["📊 Structured Data", "📝 Raw OCR Output", "🛡️ Validation Log"])
+            tab1, tab2, tab3, tab4 = st.tabs(["📊 Structured Data", "📝 OCR & Text", "🛡️ Validation Log", "💬 Ask AI"])
             
             with tab1:
                 # Format data beautifully using metrics and text inputs instead of raw JSON string
@@ -150,8 +179,8 @@ if uploaded_file is not None:
                 
                 st.markdown("### Extracted Entities")
                 for key, value in final_data.items():
-                    if key != "document_type" and value is not None:
-                        # Clean up the key names for display (e.g. "total_amount" -> "Total Amount")
+                    if key not in ["document_type", "corrected_text"] and value is not None:
+                        # Clean up the key names for display
                         display_name = key.replace("_", " ").title()
                         st.text_input(label=display_name, value=str(value), disabled=True)
                 
@@ -167,7 +196,10 @@ if uploaded_file is not None:
                 )
                         
             with tab2:
-                st.text_area("What the engine 'saw'", raw_text, height=300, disabled=True)
+                st.markdown("### Raw OCR Output")
+                st.text_area("What the engine 'saw'", raw_text, height=150, disabled=True)
+                st.markdown("### LLM Corrected Text")
+                st.text_area("Grammatically fixed text", final_data.get("corrected_text", "Not available."), height=150, disabled=True)
                 
             with tab3:
                 if validation_errors:
@@ -175,3 +207,12 @@ if uploaded_file is not None:
                     st.warning(validation_errors)
                 else:
                     st.success("✅ All data perfectly matches Indian business formatting rules.")
+                    
+            with tab4:
+                st.markdown("### Query the Document")
+                st.info("Ask the AI a question about this document.")
+                user_q = st.text_input("Your Question:")
+                if st.button("Ask") and user_q:
+                    with st.spinner("AI is thinking..."):
+                        answer = llm_engine.answer_question(user_q, raw_text)
+                        st.success(answer)
