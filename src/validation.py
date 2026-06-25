@@ -17,80 +17,79 @@ class DocumentData(BaseModel):
     document_type: str = Field(description="Classified type of document (e.g., Invoice, ID Card)")
     
     # Optional fields (since a receipt won't have a PAN number, etc.)
+    corrected_text: Optional[str] = Field(None, description="Grammatically fixed text")
     name: Optional[str] = None
-    email: Optional[EmailStr] = None # Built-in robust email regex validation
-    total_amount: Optional[float] = None # Will automatically cast string "100.50" to float
+    email: Optional[EmailStr] = None 
+    total_amount: Optional[float] = None 
     phone: Optional[str] = Field(None, description="Phone number")
     pan_number: Optional[str] = Field(None, description="PAN Card number")
     aadhaar_number: Optional[str] = Field(None, description="Aadhaar Card number")
     gst_number: Optional[str] = Field(None, description="GST Number")
     date: Optional[str] = Field(None, description="Date of the document")
     
-    # --- Pydantic Validators (The Security Guards) ---
+    # --- Soft Validators ---
     
     @field_validator('date')
     def validate_date(cls, v):
         if not v: return v
-        # Simple regex to ensure it looks like a date (DD/MM/YYYY or YYYY-MM-DD or DD-MM-YYYY)
         if not re.search(r'\d{2,4}[-/]\d{2}[-/]\d{2,4}', v):
-            raise ValueError(f"Invalid Date format: {v}. Must be DD/MM/YYYY or similar.")
+            logger.warning(f"Invalid Date format detected: {v}")
         return v
         
     @field_validator('gst_number')
     def validate_gst(cls, v):
         if not v: return v
         clean_v = v.replace(" ", "").upper()
-        # Indian GST format: 2 numbers + 10 PAN chars + 1 number/letter + Z + 1 number/letter
         if not re.match(r'^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}$', clean_v):
-            raise ValueError(f"Invalid GST Number format: {v}")
+            logger.warning(f"Invalid GST format: {v}")
         return clean_v
 
     @field_validator('phone')
     def validate_phone(cls, v):
         if not v: return v
-        # Clean up common OCR mistakes in phone numbers (dashes, spaces)
         clean_v = re.sub(r'[\s\-()]', '', v)
-        # Indian phone number format validation
         if not re.match(r'^(\+91)?\d{10}$', clean_v):
-            raise ValueError(f"Invalid phone number format: {v}")
+            logger.warning(f"Invalid phone format: {v}")
         return clean_v
 
     @field_validator('pan_number')
     def validate_pan(cls, v):
         if not v: return v
         clean_v = v.upper().replace(" ", "")
-        # Strict PAN rule: 5 Letters, 4 Numbers, 1 Letter
         if not re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$', clean_v):
-            raise ValueError(f"Invalid PAN Card format: {v}")
+            logger.warning(f"Invalid PAN format: {v}")
         return clean_v
 
     @field_validator('aadhaar_number')
     def validate_aadhaar(cls, v):
         if not v: return v
         clean_v = v.replace(" ", "").replace("-", "")
-        # Strict Aadhaar rule: Exactly 12 digits
         if not re.match(r'^\d{12}$', clean_v):
-            raise ValueError(f"Invalid Aadhaar format: {v}")
+            logger.warning(f"Invalid Aadhaar format: {v}")
         return clean_v
 
 class Validator:
     @staticmethod
     def validate_data(json_data: dict) -> dict:
         """
-        Takes raw JSON from the LLM engine and runs it through the strict Pydantic rules.
+        Takes raw JSON from the LLM engine and runs it through Pydantic.
+        We catch validation errors so the UI doesn't crash, but still log them.
         """
         try:
-            logger.info("Starting strict Pydantic data validation.")
-            # This single line executes all regex checks, type coercions, and email validations.
+            logger.info("Starting Pydantic data validation.")
             validated_model = DocumentData(**json_data)
-            
-            logger.info("Data validation passed securely.")
-            # Return clean dictionary, removing any fields that were empty (None)
+            logger.info("Data validation passed.")
             return validated_model.model_dump(exclude_none=True)
             
         except ValidationError as e:
-            # If Pydantic catches an error, we intercept it, log the exact field that failed,
-            # and raise our custom industrial exception.
             error_msgs = "; ".join([f"{err['loc'][0]}: {err['msg']}" for err in e.errors()])
-            logger.error(f"Validation failed: {error_msgs}")
-            raise DataValidationError(f"Data failed strict validation rules -> {error_msgs}")
+            logger.error(f"Validation warning: {error_msgs}")
+            
+            # Instead of crashing, we inject the error into the payload so the UI can show it gracefully
+            json_data["validation_warnings"] = error_msgs
+            
+            # Ensure document_type exists even on failure
+            if "document_type" not in json_data:
+                json_data["document_type"] = "Unreadable/Invalid"
+                
+            return {k: v for k, v in json_data.items() if v is not None}

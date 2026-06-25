@@ -16,8 +16,8 @@ logger = get_logger(__name__)
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(
-    page_title="DocuAI | Enterprise Document Processing",
-    page_icon="⚡",
+    page_title="DocuAI v2 | Intelligent Extraction",
+    page_icon="✨",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -33,10 +33,24 @@ def load_css():
 
 load_css()
 
+# --- Initialize Session State ---
+# We use session state to keep data persistent so the chatbot remembers history
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "current_file" not in st.session_state:
+    st.session_state.current_file = None
+if "extraction_done" not in st.session_state:
+    st.session_state.extraction_done = False
+if "raw_text" not in st.session_state:
+    st.session_state.raw_text = ""
+if "final_data" not in st.session_state:
+    st.session_state.final_data = {}
+if "validation_warnings" not in st.session_state:
+    st.session_state.validation_warnings = None
+
 # --- Caching Heavy AI Models ---
 @st.cache_resource
 def load_models():
-    # We do NOT use st.spinner here because we handle the UI loading state in the sidebar
     logger.info("Initializing backend engines via Streamlit cache.")
     img_proc = ImageProcessor()
     ocr = OCREngine()
@@ -45,174 +59,170 @@ def load_models():
 
 # --- Sidebar: Enterprise Settings & Engine Status ---
 with st.sidebar:
-    st.title("⚡ DocuAI Settings")
+    st.title("✨ DocuAI v2")
     st.markdown("---")
     st.markdown("**Engine Status:**")
     
     # Sleek boot sequence UI
     with st.status("Booting Neural Engines...", expanded=True) as status:
-        st.write("Initializing OpenCV Filters...")
-        st.write(f"Warming up EasyOCR ({settings.OCR_LANGUAGE})...")
+        st.write("Initializing RapidOCR (ONNX)...")
         st.write(f"Loading LLM: {settings.LLM_MODEL_NAME}...")
         try:
             image_processor, ocr_engine, llm_engine = load_models()
-            status.update(label="All Engines Online", state="complete", expanded=False)
+            status.update(label="All Engines Online 🟢", state="complete", expanded=False)
             models_loaded = True
         except Exception as e:
-            status.update(label="Engine Failure", state="error", expanded=True)
+            status.update(label="Engine Failure 🔴", state="error", expanded=True)
             st.error(f"Error: {e}")
             models_loaded = False
             
     st.markdown("---")
-    confidence_thresh = st.slider("OCR Confidence Threshold", 0.0, 1.0, 0.25, 0.05)
-    st.caption("Lowering this increases noise but captures faint text.")
+    confidence_thresh = st.slider("OCR Confidence Threshold", 0.0, 1.0, 0.50, 0.05)
+    st.caption("Lowering this increases noise but captures faint text. RapidOCR defaults to 0.5.")
+    
+    if st.button("🗑️ Reset Session", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 if not models_loaded:
     st.stop()
 
 # --- Main Enterprise UI ---
 st.title("Intelligent Document Processing")
-st.markdown("Automate data extraction from Invoices, Receipts, and Identity Documents using local, privacy-first AI.")
+st.markdown("Automate data extraction using PaddleOCR Vision and HuggingFace LLMs with Zero Hallucination.")
 st.markdown("---")
 
-# Create a massive dropzone
-uploaded_file = st.file_uploader("Drop your document here (PDF, PNG, JPG, JPEG, WEBP, TIFF, BMP, JFIF)", type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "bmp", "jfif"])
+uploaded_file = st.file_uploader("Drop your document here (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "jfif"])
 
 if uploaded_file is not None:
-    # Use columns for a sleek dashboard layout (Image on left, Extraction on right)
+    # Check if this is a NEW file
+    if st.session_state.current_file != uploaded_file.name:
+        st.session_state.current_file = uploaded_file.name
+        st.session_state.extraction_done = False
+        st.session_state.chat_history = []  # Clear chat history for new doc
+        
     main_col1, main_col2 = st.columns([1, 1.5], gap="large")
     
     with main_col1:
         st.subheader("Document Preview")
-        
-        # Handle PDF conversion if necessary
         if uploaded_file.name.lower().endswith(".pdf"):
             st.info("Extracting first page of PDF...")
             doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            page = doc.load_page(0)  # Extract first page
+            page = doc.load_page(0)
             pix = page.get_pixmap()
             pil_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             uploaded_file.seek(0)
         else:
             pil_image = Image.open(uploaded_file)
             
-        # Display image with clean styling
-        st.image(pil_image, use_column_width=True, clamp=True)
+        st.image(pil_image, use_container_width=True, clamp=True)
         
     with main_col2:
-        st.subheader("Extraction Pipeline")
-        
-        # Clear session state if a new file is uploaded
-        if "current_file" not in st.session_state or st.session_state["current_file"] != uploaded_file.name:
-            st.session_state["current_file"] = uploaded_file.name
-            st.session_state["extraction_done"] = False
+        st.subheader("AI Pipeline")
             
-        if st.button("▶ Run Extraction Sequence", use_container_width=True, type="primary"):
-            
-            # Custom Progress UI
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Phase 2
-            status_text.info("⚙️ Optimizing Image for OCR...")
-            try:
-                processed_image_array = image_processor.process_image(pil_image)
-                progress_bar.progress(25)
-            except Exception as e:
-                st.error(f"Image Processing Failed: {e}")
-                st.stop()
+        if not st.session_state.extraction_done:
+            if st.button("▶ Run Extraction Sequence", use_container_width=True, type="primary"):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-            # Phase 3
-            status_text.info("👁️ Extracting Raw Text via EasyOCR...")
-            try:
-                raw_text = ocr_engine.extract_text(processed_image_array, confidence_threshold=confidence_thresh)
-                progress_bar.progress(50)
-                if not raw_text:
-                    st.warning("OCR could not find any readable text.")
+                # Phase 2
+                status_text.info("⚙️ Optimizing Image (Size & Contrast)...")
+                try:
+                    processed_image_array = image_processor.process_image(pil_image)
+                    progress_bar.progress(30)
+                except Exception as e:
+                    st.error(f"Image Processing Failed: {e}")
                     st.stop()
-            except Exception as e:
-                st.error(f"OCR Failed: {e}")
-                st.stop()
-                
-            # Phase 4
-            status_text.info("🧠 Analyzing context with LLM... (Warning: You don't have a GPU. This can take 2-5 minutes on a normal CPU! Please wait...)")
-            try:
-                raw_json = llm_engine.extract_information(raw_text)
-                progress_bar.progress(75)
-            except Exception as e:
-                st.error(f"LLM Failed: {e}")
-                st.stop()
-                
-            # Phase 5
-            status_text.info("🛡️ Enforcing Business Rules...")
-            validation_errors = None
-            final_data = raw_json
-            try:
+                    
+                # Phase 3
+                status_text.info("👁️ Extracting Text via RapidOCR (PaddleOCR ONNX)...")
+                try:
+                    raw_text = ocr_engine.extract_text(processed_image_array, confidence_threshold=confidence_thresh)
+                    progress_bar.progress(60)
+                    if not raw_text.strip():
+                        st.warning("OCR could not find any readable text. Please try another image.")
+                        st.stop()
+                except Exception as e:
+                    st.error(f"OCR Failed: {e}")
+                    st.stop()
+                    
+                # Phase 4
+                status_text.info("🧠 Analyzing context with LLM (Few-Shot Prompting)...")
+                try:
+                    raw_json = llm_engine.extract_information(raw_text)
+                    progress_bar.progress(85)
+                except Exception as e:
+                    st.error(f"LLM Failed: {e}")
+                    st.stop()
+                    
+                # Phase 5
+                status_text.info("🛡️ Enforcing Business Rules (Soft Validation)...")
                 final_data = Validator.validate_data(raw_json)
-            except Exception as e:
-                validation_errors = str(e)
-            
-            # Save everything to session state so it persists during Chatbot queries
-            st.session_state['extraction_done'] = True
-            st.session_state['raw_text'] = raw_text
-            st.session_state['final_data'] = final_data
-            st.session_state['validation_errors'] = validation_errors
-            
-            progress_bar.progress(100)
-            status_text.success("✅ Extraction Complete.")
-            
-            st.markdown("---")
-            
-        # If extraction is done, show the results
-        if st.session_state.get('extraction_done', False):
-            final_data = st.session_state['final_data']
-            raw_text = st.session_state['raw_text']
-            validation_errors = st.session_state['validation_errors']
-            
-            # Show Results in modern Tabs instead of a long scrollable page
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 Structured Data", "📝 OCR & Text", "🛡️ Validation Log", "💬 Ask AI"])
+                
+                # Save to session
+                st.session_state.raw_text = raw_text
+                st.session_state.final_data = final_data
+                st.session_state.validation_warnings = final_data.pop("validation_warnings", None)
+                st.session_state.extraction_done = True
+                
+                progress_bar.progress(100)
+                status_text.success("✅ Extraction Complete.")
+                st.rerun() # Refresh to show tabs
+        else:
+            # Show Results in modern Tabs
+            tab1, tab2, tab3, tab4 = st.tabs(["📊 Structured Data", "💬 Chat with Doc", "📝 Raw OCR", "🛡️ Validation Log"])
             
             with tab1:
-                # Format data beautifully using metrics and text inputs instead of raw JSON string
-                doc_type = final_data.get("document_type", "Unknown")
+                doc_type = st.session_state.final_data.get("document_type", "Unknown")
                 st.metric(label="Detected Document Type", value=doc_type.upper())
                 
                 st.markdown("### Extracted Entities")
-                for key, value in final_data.items():
+                for key, value in st.session_state.final_data.items():
                     if key not in ["document_type", "corrected_text"] and value is not None:
-                        # Clean up the key names for display
                         display_name = key.replace("_", " ").title()
                         st.text_input(label=display_name, value=str(value), disabled=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                # Download button for the JSON
-                json_string = json.dumps(final_data, indent=2)
-                st.download_button(
-                    label="⬇️ Download JSON",
-                    file_name="extracted_data.json",
-                    mime="application/json",
-                    data=json_string,
-                    use_container_width=True
-                )
+                json_string = json.dumps(st.session_state.final_data, indent=2)
+                st.download_button(label="⬇️ Download JSON", file_name="extracted_data.json", mime="application/json", data=json_string, use_container_width=True)
                         
             with tab2:
-                st.markdown("### Raw OCR Output")
-                st.text_area("What the engine 'saw'", raw_text, height=150, disabled=True)
-                st.markdown("### LLM Corrected Text")
-                st.text_area("Grammatically fixed text", final_data.get("corrected_text", "Not available."), height=150, disabled=True)
+                st.markdown("### Interactive Chatbot")
+                st.caption("Ask questions about this document. Memory is preserved.")
                 
+                # Display chat history
+                for msg in st.session_state.chat_history:
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+                
+                # Chat input
+                if prompt := st.chat_input("Ask a question..."):
+                    # Display user msg
+                    with st.chat_message("user"):
+                        st.write(prompt)
+                    # Add to history
+                    st.session_state.chat_history.append({"role": "user", "content": prompt})
+                    
+                    # Get AI response
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            response = llm_engine.answer_question_with_history(
+                                st.session_state.chat_history, 
+                                st.session_state.raw_text
+                            )
+                            st.write(response)
+                            st.session_state.chat_history.append({"role": "assistant", "content": response})
+
             with tab3:
-                if validation_errors:
-                    st.error("⚠️ Data Validation Warnings Found")
-                    st.warning(validation_errors)
+                st.markdown("### Raw RapidOCR Output")
+                st.text_area("What the Vision Engine 'saw'", st.session_state.raw_text, height=200, disabled=True)
+                if "corrected_text" in st.session_state.final_data:
+                    st.markdown("### LLM Corrected Text")
+                    st.text_area("Grammatically fixed text", st.session_state.final_data["corrected_text"], height=150, disabled=True)
+                
+            with tab4:
+                if st.session_state.validation_warnings:
+                    st.warning("⚠️ Data Validation Warnings Found")
+                    st.info(st.session_state.validation_warnings)
                 else:
                     st.success("✅ All data perfectly matches Indian business formatting rules.")
-                    
-            with tab4:
-                st.markdown("### Query the Document")
-                st.info("Ask the AI a question about this document.")
-                user_q = st.text_input("Your Question:")
-                if st.button("Ask") and user_q:
-                    with st.spinner("AI is thinking..."):
-                        answer = llm_engine.answer_question(user_q, raw_text)
-                        st.success(answer)

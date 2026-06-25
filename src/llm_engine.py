@@ -11,25 +11,25 @@ logger = get_logger(__name__)
 class LLMEngine:
     """
     Industrial LLM Wrapper using Hugging Face Transformers.
-    This class loads an open-source model, uses Prompt Engineering to 
-    correct OCR mistakes, and forces the model to output structured JSON data.
+    Upgraded for v2.0: 
+    - Zero temperature (Deterministic output)
+    - Few-Shot Prompting (Anti-hallucination)
+    - Regex fallback parser
+    - Conversational History for Chatbot
     """
     def __init__(self):
         logger.info(f"Loading Hugging Face LLM: {settings.LLM_MODEL_NAME}")
         try:
-            # Auto-detect if the user has an NVIDIA GPU (CUDA)
             device = 0 if torch.cuda.is_available() else -1
             if device == 0:
-                logger.info("CUDA GPU detected. Loading model on GPU for fast inference.")
+                logger.info("CUDA GPU detected. Loading model on GPU.")
             else:
-                logger.warning("No GPU detected. Loading model on CPU. Inference may take a few minutes per document.")
+                logger.warning("No GPU detected. Loading model on CPU.")
 
-            # Load the model via the high-level Pipeline API
             self.generator = pipeline(
                 "text-generation", 
                 model=settings.LLM_MODEL_NAME, 
                 device=device,
-                # Use float16 on GPU to save VRAM, float32 on CPU
                 torch_dtype=torch.float16 if device == 0 else torch.float32,
             )
             logger.info("LLM loaded successfully.")
@@ -40,27 +40,34 @@ class LLMEngine:
 
     def extract_information(self, ocr_text: str) -> dict:
         """
-        Takes raw OCR text, builds a strict prompt, and generates JSON.
+        Takes raw OCR text, builds a strict few-shot prompt, and generates JSON.
         """
         logger.info("Starting LLM information extraction and classification.")
         
-        prompt = self._build_prompt(ocr_text)
+        # Anti-Hallucination Guard: If OCR text is too short, don't even ask the LLM
+        if len(ocr_text.strip()) < 10:
+            logger.warning("OCR text is too short. Bypassing LLM to prevent hallucination.")
+            return {
+                "document_type": "Unreadable",
+                "corrected_text": ocr_text,
+                "error": "Image did not contain enough readable text for extraction."
+            }
+            
+        prompt = self._build_extraction_prompt(ocr_text)
         
         try:
-            # Generate response
-            # temperature=0.1 makes the model highly factual and less creative (perfect for data extraction)
+            # temperature=0.01 makes the model highly deterministic
             response = self.generator(
                 prompt, 
                 max_new_tokens=512, 
                 return_full_text=False,
-                temperature=0.1, 
+                temperature=0.01, 
                 do_sample=True
             )
             
             generated_text = response[0]['generated_text']
             logger.debug(f"Raw LLM Output:\n{generated_text}")
             
-            # Parse the JSON string into a Python dictionary
             json_data = self._parse_json(generated_text)
             logger.info("LLM extraction and JSON parsing successful.")
             return json_data
@@ -69,25 +76,31 @@ class LLMEngine:
             logger.error(f"LLM extraction failed: {str(e)}")
             raise LLMExtractionError(f"Failed to extract information: {str(e)}")
 
-    def _build_prompt(self, ocr_text: str) -> str:
+    def _build_extraction_prompt(self, ocr_text: str) -> str:
         """
-        Industrial Prompt Engineering.
-        We establish a strict persona and explicitly define the required output.
+        Few-Shot Prompt Engineering.
+        We provide examples of EXACTLY what we want so the LLM doesn't guess.
         """
         system_prompt = (
             "You are an expert data extraction AI. "
             "Your job is to read messy OCR text from a document and extract key information into a strict JSON format. "
-            "Rule 1: Always include a 'document_type' key classifying the document strictly into one of these: 'Invoice', 'Receipt', 'Resume', 'Aadhaar Card', 'PAN Card', 'Driving License', 'Passport', 'Bank Statement', 'Other'. "
-            "Rule 2: Always include a 'corrected_text' key containing a grammatically fixed version of the raw OCR text. "
-            "Rule 3: Dynamically extract ALL relevant fields based on the document type (e.g., 'name', 'date', 'total_amount', 'invoice_number', 'gst_number', 'pan_number', 'aadhaar_number'). "
-            "CRITICAL RULE: If the OCR text is garbage or empty, do NOT make up fake data like 'John Doe'. Output an empty JSON {} if no real data is found. "
-            "Do NOT include any explanations, introductory text, or markdown formatting like ```json. Output ONLY the raw JSON dictionary."
+            "Rule 1: Always include a 'document_type' key. Valid options: 'Invoice', 'Receipt', 'Aadhaar Card', 'PAN Card', 'Passport', 'Other'. "
+            "Rule 2: Always include a 'corrected_text' key fixing obvious OCR typos. "
+            "Rule 3: Dynamically extract fields (e.g., 'name', 'date', 'total_amount', 'pan_number'). "
+            "Rule 4: Output ONLY a valid JSON dictionary. Do NOT include markdown blocks like ```json."
         )
         
-        user_prompt = f"OCR TEXT:\n{ocr_text}\n\nEXTRACTED JSON:"
+        # Example 1: PAN Card
+        ex1_user = "OCR TEXT:\nINCOME TAX DEPARTMENT GOVT OF INDIA\nJOH N DOE\n01/01/1990\nABCDE1234F"
+        ex1_asst = '{"document_type": "PAN Card", "corrected_text": "INCOME TAX DEPARTMENT GOVT OF INDIA JOHN DOE 01/01/1990 ABCDE1234F", "name": "John Doe", "date": "01/01/1990", "pan_number": "ABCDE1234F"}'
+        
+        # Actual User Query
+        user_prompt = f"OCR TEXT:\n{ocr_text}"
         
         messages = [
             {"role": "system", "content": system_prompt},
+            {"role": "user", "content": ex1_user},
+            {"role": "assistant", "content": ex1_asst},
             {"role": "user", "content": user_prompt}
         ]
         
@@ -95,51 +108,69 @@ class LLMEngine:
             return self.generator.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
-        except Exception as e:
-            logger.warning(f"Failed to apply chat template: {e}. Falling back to basic prompt.")
-            return f"{system_prompt}\n\n{user_prompt}"
+        except Exception:
+            # Fallback if tokenizer doesn't support chat templates
+            return f"{system_prompt}\n\nExample:\n{ex1_user}\nOutput:\n{ex1_asst}\n\nNow do this:\n{user_prompt}\nOutput:\n"
 
     def _parse_json(self, text: str) -> dict:
         """
-        Fallback parser (Edge Case Handling).
-        LLMs frequently disobey instructions and wrap JSON in markdown blocks like ```json ... ```.
-        This uses Regular Expressions (Regex) to safely hunt down and extract the actual dictionary.
+        Robust Regex parsing to extract JSON even if the LLM wraps it in markdown
+        or adds conversational garbage at the end.
         """
         try:
-            # Best case scenario: The LLM listened and output clean JSON
             return json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("Direct JSON parsing failed. LLM likely included markdown. Attempting regex extraction.")
+            logger.warning("Direct parsing failed. Attempting robust Regex extraction.")
             
-            # Search for the first { and the last } in the string
-            match = re.search(r'\{.*\}', text, re.DOTALL)
-            if match:
+            # Attempt 1: Look for markdown code blocks
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+            if json_match:
                 try:
-                    return json.loads(match.group(0))
+                    return json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    pass
+                    
+            # Attempt 2: Non-greedy search for the first valid JSON block
+            # This ignores trailing conversation like "Sure! Here is the JSON: {}"
+            match_non_greedy = re.search(r'\{.*?\}', text, re.DOTALL)
+            if match_non_greedy:
+                try:
+                    return json.loads(match_non_greedy.group(0))
                 except json.JSONDecodeError as e:
-                    raise LLMExtractionError(f"Regex extracted text is still not valid JSON: {str(e)}")
-            else:
-                raise LLMExtractionError("No JSON structure could be found in the LLM output.")
+                    raise LLMExtractionError(f"Regex extracted text is not valid JSON: {str(e)}")
+            
+            raise LLMExtractionError("No JSON structure could be found in the LLM output.")
 
-    def answer_question(self, question: str, context: str) -> str:
+    def answer_question_with_history(self, chat_history: list, context: str) -> str:
         """
-        Takes the user's question and the raw OCR text as context and answers the question.
+        Multi-turn Chatbot Engine.
+        Accepts the full chat history array to maintain conversational memory.
+        chat_history format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
         """
-        logger.info(f"Answering user query: {question}")
-        system_prompt = "You are a helpful assistant reading a document."
-        user_prompt = f"DOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION: {question}"
+        system_prompt = (
+            "You are a helpful AI assistant analyzing a document for a user. "
+            "Answer questions based ONLY on the provided DOCUMENT CONTEXT. "
+            "If the answer is not in the context, politely say so."
+        )
         
+        # Inject the OCR context into the first system message
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "system", "content": f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}"}
         ]
+        
+        # Append all historical messages
+        messages.extend(chat_history)
         
         try:
             prompt = self.generator.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
         except Exception:
-            prompt = f"{system_prompt}\n\n{user_prompt}\n\nANSWER:"
+            # Fallback
+            prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\n"
+            for msg in chat_history:
+                prompt += f"{msg['role'].upper()}: {msg['content']}\n"
+            prompt += "ASSISTANT:"
             
         try:
             response = self.generator(
@@ -152,4 +183,4 @@ class LLMEngine:
             return response[0]['generated_text'].strip()
         except Exception as e:
             logger.error(f"Chatbot failed: {str(e)}")
-            return "I am sorry, I am having trouble answering that question right now."
+            return "I'm sorry, I'm having trouble analyzing the document right now."

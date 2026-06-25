@@ -1,100 +1,90 @@
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 from src.core.logger import get_logger
 from src.core.exceptions import ImageProcessingError
 
 logger = get_logger(__name__)
 
+# Maximum dimension (px) for an image before we resize it down.
+# Oversized images slow down OCR without improving accuracy.
+MAX_DIMENSION = 2000
+
 class ImageProcessor:
     """
-    Industrial-grade Image Preprocessing Pipeline.
-    Real-world document photos are messy. This class applies computer vision 
-    techniques (OpenCV) to clean, normalize, and prepare images so that the 
-    OCR engine can read them with maximum accuracy.
+    Lightweight, safe Image Preprocessing Pipeline.
+    
+    Philosophy: Do NOT destroy information. Every operation here is designed
+    to enhance legibility (removing camera noise, improving contrast) without 
+    risking text deletion (no aggressive thresholding or manual deskewing).
+    
+    RapidOCR's internal ONNX models handle text detection and orientation 
+    correction natively — we just need to provide a clean, well-lit image.
     """
     def __init__(self):
-        logger.debug("Initializing ImageProcessor pipeline.")
-        
+        logger.info("ImageProcessor initialized (Lightweight Mode).")
+
     def process_image(self, pil_image: Image.Image) -> np.ndarray:
         """
-        Main pipeline: takes a raw uploaded image and returns a cleaned numpy array.
+        Main pipeline: Takes a raw uploaded PIL image, cleans it up,
+        and returns a numpy array ready for the OCR engine.
+        
+        Cases handled:
+        - RGBA/palette images (e.g., PNG with transparency): converted to RGB
+        - Oversized images: resized to MAX_DIMENSION to prevent OCR timeout
+        - Dark/underexposed images: contrast-enhanced with CLAHE
+        - Noisy camera images: light Gaussian denoising
         """
         try:
             logger.info("Starting image preprocessing pipeline.")
             
-            # Convert PIL image (which Streamlit uses) to OpenCV format (numpy array)
+            # --- Step 0: Normalize image mode ---
+            # Convert RGBA (PNG with alpha channel) to RGB
+            if pil_image.mode in ("RGBA", "P", "LA"):
+                logger.debug(f"Converting image from {pil_image.mode} to RGB.")
+                pil_image = pil_image.convert("RGB")
+            elif pil_image.mode != "RGB":
+                pil_image = pil_image.convert("RGB")
+            
+            # --- Step 1: Resize if oversized ---
+            pil_image = self._normalize_size(pil_image)
+            
+            # --- Step 2: Convert PIL to OpenCV numpy array ---
             cv_image = np.array(pil_image)
+            cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
             
-            # Convert RGB to BGR (OpenCV standard format)
-            if len(cv_image.shape) == 3 and cv_image.shape[2] == 3:
-                cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
-                
-            # Step 1: Grayscale
-            gray = self._to_grayscale(cv_image)
+            # --- Step 3: Convert to Grayscale for analysis ---
+            gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
             
-            # Step 2: Noise Removal (Smoothing)
-            denoised = self._remove_noise(gray)
+            # --- Step 4: Check brightness and enhance contrast if needed ---
+            mean_brightness = np.mean(gray)
+            logger.debug(f"Image mean brightness: {mean_brightness:.1f}/255")
             
-            # Step 3: Deskewing (Straighten tilted documents)
-            deskewed = self._deskew(denoised)
+            # Use CLAHE (Contrast Limited Adaptive Histogram Equalization)
+            # This is gentle and locally adaptive - it won't wash out bright text
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
             
-            # Step 4: Adaptive Thresholding (Binarization)
-            thresh = self._apply_threshold(deskewed)
+            # --- Step 5: Light Gaussian Denoising (remove camera speckle) ---
+            # Kernel size 3x3 is gentle - doesn't blur text strokes
+            denoised = cv2.GaussianBlur(enhanced, (3, 3), 0)
             
             logger.info("Image preprocessing completed successfully.")
-            return thresh
+            return denoised
             
         except Exception as e:
             logger.error(f"Image preprocessing failed: {str(e)}")
             raise ImageProcessingError(f"Failed to process image: {str(e)}")
 
-    def _deskew(self, image: np.ndarray) -> np.ndarray:
+    def _normalize_size(self, pil_image: Image.Image) -> Image.Image:
         """
-        Calculates the skew angle of the text and rotates the image to perfectly horizontal.
-        This fulfills the 'Deskewing' requirement of the interview rubric.
+        Resizes oversized images while maintaining aspect ratio.
+        Prevents OCR from timing out on 4K phone camera photos.
         """
-        logger.debug("Applying deskewing algorithm.")
-        # Invert colors (text becomes white, background black) for coordinate finding
-        coords = np.column_stack(np.where(image < 255))
-        
-        # If image is completely white, skip deskewing to avoid errors
-        if len(coords) == 0:
-            return image
-            
-        angle = cv2.minAreaRect(coords)[-1]
-        
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-            
-        # Rotate image to deskew
-        (h, w) = image.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        # Use white border (255) for replication
-        rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-        return rotated
-
-    def _to_grayscale(self, image: np.ndarray) -> np.ndarray:
-        """Converts the image to black and white, dropping unnecessary color data."""
-        logger.debug("Applying grayscale conversion.")
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-    def _remove_noise(self, gray_image: np.ndarray) -> np.ndarray:
-        """Applies a Gaussian Blur to remove tiny speckles (noise) from poor cameras."""
-        logger.debug("Applying noise removal (Gaussian Blur).")
-        return cv2.GaussianBlur(gray_image, (5, 5), 0)
-        
-    def _apply_threshold(self, denoised_image: np.ndarray) -> np.ndarray:
-        """
-        Uses Adaptive Thresholding. Unlike simple thresholding, this calculates 
-        different thresholds for different regions of the image. This is CRITICAL 
-        for photos where a shadow falls across half the document.
-        """
-        logger.debug("Applying adaptive thresholding.")
-        return cv2.adaptiveThreshold(
-            denoised_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 11, 2
-        )
+        w, h = pil_image.size
+        if max(w, h) > MAX_DIMENSION:
+            ratio = MAX_DIMENSION / max(w, h)
+            new_w, new_h = int(w * ratio), int(h * ratio)
+            logger.debug(f"Resizing image from {w}x{h} to {new_w}x{new_h}.")
+            return pil_image.resize((new_w, new_h), Image.LANCZOS)
+        return pil_image

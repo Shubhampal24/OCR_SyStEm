@@ -1,74 +1,132 @@
-/* assets/style.css */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+/* assets/style.css - DocuAI v2.0 Premium Design */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap');
 
+/* Base Theme */
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
+    background-color: #050505;
+    color: #e2e8f0;
 }
 
-/* Hide Streamlit Branding */
+/* Hide Streamlit Branding but KEEP sidebar toggle */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
+/* Notice: header is NOT hidden so the sidebar toggle arrow works */
 
-/* Custom Container Styling */
-.stApp {
-    background-color: #f8fafc;
+/* Headings with Space Grotesk and Gradients */
+h1, h2, h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
 }
 
-/* Make headers pop */
 h1 {
-    color: #0f172a;
-    font-weight: 800;
-}
-h2, h3 {
-    color: #1e293b;
-    font-weight: 600;
+    background: linear-gradient(90deg, #4f8dff, #b53cff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradientShift 5s ease infinite;
 }
 
-/* Style the file uploader to look like a modern dropzone */
+/* Animations */
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(79, 141, 255, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(79, 141, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(79, 141, 255, 0); }
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
+
+/* Animated File Uploader / Dropzone */
 [data-testid="stFileUploadDropzone"] {
-    border: 2px dashed #3b82f6 !important;
-    border-radius: 12px !important;
-    padding: 30px !important;
-    background-color: #ffffff !important;
-    transition: all 0.3s ease;
+    border: 2px dashed rgba(79, 141, 255, 0.5) !important;
+    border-radius: 16px !important;
+    padding: 40px !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 [data-testid="stFileUploadDropzone"]:hover {
-    border-color: #2563eb !important;
-    background-color: #eff6ff !important;
+    border-color: #4f8dff !important;
+    background: rgba(30, 41, 59, 0.8) !important;
+    transform: scale(1.02);
+    box-shadow: 0 10px 30px -10px rgba(79, 141, 255, 0.3);
 }
 
-/* Metric Cards for Document Type */
+/* Glassmorphism Metric Cards */
+div[data-testid="stMetric"] {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(12px);
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
 div[data-testid="stMetricValue"] {
-    font-size: 2rem;
-    color: #059669;
-    font-weight: 800;
-}
-div[data-testid="stMetricLabel"] {
-    font-size: 1rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: 2.2rem;
+    color: #4f8dff;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
 }
 
-/* Make input fields look like clean read-only cards */
+/* Styled Inputs */
 .stTextInput > div > div > input {
-    background-color: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    color: #0f172a;
-    font-weight: 600;
+    background-color: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(79, 141, 255, 0.3);
+    color: #f8fafc;
+    border-radius: 8px;
+    font-family: 'Space Grotesk', monospace;
+    transition: all 0.2s ease;
 }
 
-/* Customize Tabs */
-button[data-baseweb="tab"] {
-    font-size: 1.1rem;
-    font-weight: 600;
+.stTextInput > div > div > input:focus {
+    border-color: #b53cff;
+    box-shadow: 0 0 10px rgba(181, 60, 255, 0.2);
 }
 
-/* Clean up sidebar */
+/* Chat Messages */
+[data-testid="stChatMessage"] {
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.05);
+    padding: 10px;
+    margin-bottom: 10px;
+    animation: float 3s ease-in-out infinite;
+}
+
+/* Primary Button Styling */
+button[kind="primary"] {
+    background: linear-gradient(135deg, #4f8dff, #3b82f6);
+    border: none !important;
+    color: white !important;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s ease !important;
+    animation: pulse 2s infinite;
+}
+
+button[kind="primary"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(79, 141, 255, 0.4);
+}
+
+/* Sidebar styling */
 [data-testid="stSidebar"] {
-    background-color: #1e293b;
+    background-color: #0f172a;
+    border-right: 1px solid rgba(255,255,255,0.05);
 }
-[data-testid="stSidebar"] * {
-    color: #f8fafc !important;
+
+/* Custom Status spinners */
+.stSpinner > div > div {
+    border-color: #4f8dff transparent transparent transparent !important;
 }
